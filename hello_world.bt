@@ -1,17 +1,16 @@
 #!/usr/bin/env bpftrace
 
 /*
-    ** Built-in variables ***
-    1) comm: Current Process Name
-    2) pid: Process Id
-    3) tid: Thread Id
-    4) cpu: CPU Core
-    5) nsecs: timestamp
-*/
+ *   ** Built-in variables ***
+ *   1) comm: Current Process Name
+ *   2) pid: Process Id
+ *   3) tid: Thread Id
+ *   4) cpu: CPU Core
+ *   5) nsecs: timestamp
 
-// Finding more tracepoints with syscalls: sudo bpftrace -l 'tracepoint:syscalls:*'
-// Finding available variables with specific tracepoint: sudo bpftrace -lv 'tracepoint:syscalls:sys_enter_execve'
-
+ *  Finding more tracepoints with syscalls: sudo bpftrace -l 'tracepoint:syscalls:*'
+ *  Finding available variables with specific tracepoint: sudo bpftrace -lv 'tracepoint:syscalls:sys_enter_execve'
+ */
 
 // Test: T1: "sudo bpftrace hello_world.bt" T2: "ls -ltr"
 tracepoint:syscalls:sys_enter_execve

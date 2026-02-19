@@ -1,0 +1,157 @@
+#!/usr/bin/env bpftrace
+
+/* List can be found here:
+ *   1) bpftrace -l 'kprobe:tcp_*'
+ *   2) grep tcp_ /sys/kernel/debug/tracing/available_filter_functions
+ */
+
+/* How to run:
+ *   1) sudo bpftrace tcp_trace_cwnd.bt <src_port> <dst_port>  
+ *   2) sudo ./tcp_trace_cwnd.bt <src_port> <dst_port>  
+ */
+
+/*
+ * ==============================================================================
+ * COLUMN LEGEND (MANUAL HEADER)
+ * ==============================================================================
+ * 1. TIME        : HH:MM:SS.mmm (High precision)
+ * 2. ST_ID       : State ID (4=Loss/RTO, 3=Recovery, 2=CWR, 0=Undo/Open)
+ * 3. EVENT       : Human readable reason
+ * 4. IS_DROP     : 1 = Cwnd decreased, 0 = Cwnd restored/stable
+ * 5. CWND        : Current Congestion Window size (packets)
+ * 6. SRTT_us     : Smoothed Round Trip Time (microseconds)
+ * 7. RETRANS     : Total retransmissions counter
+ * ==============================================================================
+ *
+ * NOTE ON "DISORDER" STATE (ID 1):
+ * This state does not have a unique "enter" function in the kernel, so it 
+ * cannot be traced via kprobes on systems lacking the tcp_set_ca_state tracepoint.
+ */
+
+#include <net/tcp.h>
+#include <net/sock.h>
+
+// ----------------------------------------------------------
+// STATE 4: LOSS (RTO) - Critical
+// ----------------------------------------------------------
+kprobe:tcp_enter_loss
+{
+    $sk = (struct sock *)arg0;
+    $lport = $sk->__sk_common.skc_num;
+    $dport_be = $sk->__sk_common.skc_dport;
+    $dport = (($dport_be & 0xFF00) >> 8) | (($dport_be & 0x00FF) << 8);
+
+    if ($lport == $1 && $dport == $2) {
+        $tp = (struct tcp_sock *)$sk;
+        $ms = (nsecs / 1000000) % 1000;
+        
+        printf("%s.%03d, %-6d, %-18s, %-8d, %-8d, %-8d, %-8d\n", 
+               strftime("%H:%M:%S", nsecs), $ms,
+               4,                  
+               "Loss(RTO)",        
+               1,                  
+               $tp->snd_cwnd, 
+               $tp->srtt_us >> 3, 
+               $tp->total_retrans);
+    }
+}
+
+// ----------------------------------------------------------
+// STATE 3: RECOVERY (Fast Retransmit)
+// ----------------------------------------------------------
+kprobe:tcp_enter_recovery
+{
+    $sk = (struct sock *)arg0;
+    $lport = $sk->__sk_common.skc_num;
+    $dport_be = $sk->__sk_common.skc_dport;
+    $dport = (($dport_be & 0xFF00) >> 8) | (($dport_be & 0x00FF) << 8);
+
+    if ($lport == $1 && $dport == $2) {
+        $tp = (struct tcp_sock *)$sk;
+        $ms = (nsecs / 1000000) % 1000;
+        
+        printf("%s.%03d, %-6d, %-18s, %-8d, %-8d, %-8d, %-8d\n", 
+               strftime("%H:%M:%S", nsecs), $ms,
+               3,                  
+               "Recovery",         
+               1,                  
+               $tp->snd_cwnd, 
+               $tp->srtt_us >> 3, 
+               $tp->total_retrans);
+    }
+}
+
+// ----------------------------------------------------------
+// STATE 2: CWR (ECN / Rate Limit)
+// ----------------------------------------------------------
+kprobe:tcp_enter_cwr
+{
+    $sk = (struct sock *)arg0;
+    $lport = $sk->__sk_common.skc_num;
+    $dport_be = $sk->__sk_common.skc_dport;
+    $dport = (($dport_be & 0xFF00) >> 8) | (($dport_be & 0x00FF) << 8);
+
+    if ($lport == $1 && $dport == $2) {
+        $tp = (struct tcp_sock *)$sk;
+        $ms = (nsecs / 1000000) % 1000;
+        
+        printf("%s.%03d, %-6d, %-18s, %-8d, %-8d, %-8d, %-8d\n", 
+               strftime("%H:%M:%S", nsecs), $ms,
+               2,                  
+               "CWR(ECN)",         
+               1,                  
+               $tp->snd_cwnd, 
+               $tp->srtt_us >> 3, 
+               $tp->total_retrans);
+    }
+}
+
+// ----------------------------------------------------------
+// STATE 0: UNDO (False Alarm: Reordering)
+// ----------------------------------------------------------
+kprobe:tcp_try_undo_recovery
+{
+    $sk = (struct sock *)arg0;
+    $lport = $sk->__sk_common.skc_num;
+    $dport_be = $sk->__sk_common.skc_dport;
+    $dport = (($dport_be & 0xFF00) >> 8) | (($dport_be & 0x00FF) << 8);
+
+    if ($lport == $1 && $dport == $2) {
+        $tp = (struct tcp_sock *)$sk;
+        $ms = (nsecs / 1000000) % 1000;
+        
+        printf("%s.%03d, %-6d, %-18s, %-8d, %-8d, %-8d, %-8d\n", 
+               strftime("%H:%M:%S", nsecs), $ms,
+               0,                  
+               "Undo(FastRetrans)",       
+               0,                  
+               $tp->snd_cwnd, 
+               $tp->srtt_us >> 3, 
+               $tp->total_retrans);
+    }
+}
+
+// ----------------------------------------------------------
+// STATE 0: UNDO (False Alarm :RTO)
+// ----------------------------------------------------------
+kprobe:tcp_try_undo_loss
+{
+    $sk = (struct sock *)arg0;
+    $lport = $sk->__sk_common.skc_num;
+    $dport_be = $sk->__sk_common.skc_dport;
+    $dport = (($dport_be & 0xFF00) >> 8) | (($dport_be & 0x00FF) << 8);
+
+    if ($lport == $1 && $dport == $2) {
+        $tp = (struct tcp_sock *)$sk;
+        $ms = (nsecs / 1000000) % 1000;
+        
+        printf("%s.%03d, %-6d, %-18s, %-8d, %-8d, %-8d, %-8d\n", 
+               strftime("%H:%M:%S", nsecs), $ms,
+               0,                  
+               "Undo(RTO)",       
+               0,                  
+               $tp->snd_cwnd, 
+               $tp->srtt_us >> 3, 
+               $tp->total_retrans);
+    }
+}
