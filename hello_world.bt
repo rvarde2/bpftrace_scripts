@@ -1,0 +1,35 @@
+#!/usr/bin/env bpftrace
+
+/*
+    ** Built-in variables ***
+    1) comm: Current Process Name
+    2) pid: Process Id
+    3) tid: Thread Id
+    4) cpu: CPU Core
+    5) nsecs: timestamp
+*/
+
+// Finding more tracepoints with syscalls: sudo bpftrace -l 'tracepoint:syscalls:*'
+// Finding available variables with specific tracepoint: sudo bpftrace -lv 'tracepoint:syscalls:sys_enter_execve'
+
+
+// Test: T1: "sudo bpftrace hello_world.bt" T2: "ls -ltr"
+tracepoint:syscalls:sys_enter_execve
+{
+     printf("%llu: Hello World (TracePoint)\n", nsecs);
+     printf("\tProcess Name: %s, ID:%d \n",comm, pid);
+     printf("\tFilename:%s \n",str(args->filename));
+     printf("\targv[0]: %s\n", str(args->argv[0]));
+     printf("\targv[1]: %s\n", str(args->argv[1]));
+     printf("\targv[2]: %s\n", str(args->argv[2]));
+}
+
+// Test: T2: "sudo bpftrace hello_world.bt" T2: "cat <files>""
+kprobe:do_sys_openat2
+{
+    printf("%llu: Hello World (KProbe)\n", nsecs);
+    printf("\tProcess Name: %s, ID:%d \n",comm, pid);
+    printf("\tFlags:%d \n",arg1);
+}
+
+//Note: exit in any tracepoint or kprobe will kill entire program
