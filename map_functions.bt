@@ -1,0 +1,38 @@
+#!/usr/bin/env bpftrace
+
+// Test: Try to open various files in another terminals
+
+tracepoint:syscalls:sys_exit_read
+/ (comm == "bash" || comm == "cat") && args->ret >= 0 /
+{
+    $bytes = args->ret;
+
+    @count[comm] = count();
+    @sum[comm]   = sum($bytes);
+    @avg[comm]   = avg($bytes);
+    @min[comm]   = min($bytes);
+    @max[comm]   = max($bytes);
+
+    @hist[comm]  = hist($bytes);
+    @lhist[comm] = lhist($bytes, 0, 4096, 512);
+}
+
+interval:s:5
+{
+    printf("\n--- Read Size Summary ---\n");
+    print(@count);
+    print(@sum);
+    print(@avg);
+    print(@min);
+    print(@max);
+    print(@hist);
+    print(@lhist);
+
+    clear(@count);
+    clear(@sum);
+    clear(@avg);
+    clear(@min);
+    clear(@max);
+    clear(@hist);
+    clear(@lhist);
+}
