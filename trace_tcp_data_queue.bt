@@ -44,10 +44,10 @@ kprobe:tcp_data_queue
             
             $compress = $iph->tos & 0x4;
             if ($compress == 0x4) {
-                @gap_compress_hist = hist($gap);
+                @gap_compress_hist = lhist($gap,0,1000,100);
             }
             else{
-                @gap_encrypt_hist = hist($gap);
+                @gap_encrypt_hist = lhist($gap,0,1000,100);
             }
 
         }
@@ -65,7 +65,7 @@ interval:s:1
 
     if (@gap_cnt > 0) {
         print(@gap_max);
-        printf("average_gap:%d",@gap_sum / @gap_cnt);
+        printf("average_gap:%d\n",@gap_sum / @gap_cnt);
         print(@gap_compress_hist);
         print(@gap_encrypt_hist);
         print(@reordering_thresh);
