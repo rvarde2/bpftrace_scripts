@@ -3,9 +3,9 @@
 #include <net/tcp.h>
 #include <net/sock.h>
 
-kprobe:tcp_validate_incoming
+kprobe:tcp_data_queue
 {
-    $sk = (struct sock *)arg0;
+    $sk  = (struct sock *)arg0;
     $skb = (struct sk_buff *)arg1;
 
     //Ignore packets without payload: Ignore Acks: Makes it receiver side script
@@ -18,39 +18,40 @@ kprobe:tcp_validate_incoming
     $dport = (($dport_be & 0xFF00) >> 8) | (($dport_be & 0x00FF) << 8);
 
     //if ($lport == $1 && $dport == $2)
-    if ($dport == $1){
+    if ($dport == $2){
         $tp = (struct tcp_sock *)$sk;
         $rcv_nxt = $tp->rcv_nxt;
-        // printf("rcv_nxt=%u\n", $tp->rcv_nxt);
-
         $tcb = (struct tcp_skb_cb *)$skb->cb;
         $seq = $tcb->seq;
-/*
-        //Alternative approach to extract sequence number
-        $th = (struct tcphdr *)($skb->head + $skb->transport_header);
-        $seq_be = $th->seq;
-        $seq =
-            (($seq_be & 0xFF000000) >> 24) |
-            (($seq_be & 0x00FF0000) >> 8)  |
-            (($seq_be & 0x0000FF00) << 8)  |
-            (($seq_be & 0x000000FF) << 24);
-*/
-        // printf("seq=%u\n", $seq);
 
         if ($seq > $rcv_nxt) {
-            $gap = $seq - $rcv_nxt;
-
-            printf("REORDER: gap=%u seq=%u rcv_nxt=%u\n",
-                   $gap, $seq, $rcv_nxt);
-
-            @gap_hist = hist($gap);
+            $gap = ($seq - $rcv_nxt)/8800;
             @gap_max  = max($gap);
             @gap_sum += $gap;
             @gap_cnt += 1;
+            @reorder_total = count();
+
+            $iph = (struct iphdr *)($skb->head + $skb->network_header);
+
+            /*
+            $ecn = $iph->tos & 0x3;
+            if ($ecn == 3) {
+                @reorder_ce = count();
+            }
+            */
+            
+            $compress = $iph->tos & 0x4;
+            if ($compress == 1) {
+                @gap_compress_hist = hist($gap);
+            }
+            else{
+                @gap_encrypt_hist = hist($gap);
+            }
+
         }
         @total_packets = count();
         @reordering_thresh = hist($tp->reordering);
-    } 
+    }
 }
 
 interval:s:1
@@ -63,17 +64,19 @@ interval:s:1
     if (@gap_cnt > 0) {
         print(@gap_max);
         print(@gap_sum / @gap_cnt);
-        print(@gap_hist);
+        print(@gap_compress_hist);
+        print(@gap_encrypt_hist);
         print(@reordering_thresh);
     }
 
     printf("=====================\n");
 
     // Reset for next window
-    clear(@gap_hist);
+    clear(@gap_compress_hist);
+    clear(@gap_encrypt_hist);
     clear(@gap_max);
     clear(@gap_sum);
     clear(@gap_cnt);
-    clear(@reordering_thresh)
+    clear(@reordering_thresh);
     clear(@total_packets);
 }

@@ -1,0 +1,79 @@
+#!/usr/bin/env bpftrace
+
+#include <net/tcp.h>
+#include <net/sock.h>
+
+kprobe:tcp_validate_incoming
+{
+    $sk = (struct sock *)arg0;
+    $skb = (struct sk_buff *)arg1;
+
+    //Ignore packets without payload: Ignore Acks: Makes it receiver side script
+    if ($skb->len == 0) {
+        return;
+    }
+
+    $lport = $sk->__sk_common.skc_num;
+    $dport_be = $sk->__sk_common.skc_dport;
+    $dport = (($dport_be & 0xFF00) >> 8) | (($dport_be & 0x00FF) << 8);
+
+    //if ($lport == $1 && $dport == $2)
+    if ($dport == $2){
+        $tp = (struct tcp_sock *)$sk;
+        $rcv_nxt = $tp->rcv_nxt;
+        // printf("rcv_nxt=%u\n", $tp->rcv_nxt);
+
+        $tcb = (struct tcp_skb_cb *)$skb->cb;
+        $seq = $tcb->seq;
+/*
+        //Alternative approach to extract sequence number
+        $th = (struct tcphdr *)($skb->head + $skb->transport_header);
+        $seq_be = $th->seq;
+        $seq =
+            (($seq_be & 0xFF000000) >> 24) |
+            (($seq_be & 0x00FF0000) >> 8)  |
+            (($seq_be & 0x0000FF00) << 8)  |
+            (($seq_be & 0x000000FF) << 24);
+*/
+        // printf("seq=%u\n", $seq);
+
+        if ($seq > $rcv_nxt) {
+            $gap = ($seq - $rcv_nxt)/8800;
+
+            printf("REORDER: gap=%u seq=%u rcv_nxt=%u\n",
+                   $gap, $seq, $rcv_nxt);
+
+            @gap_hist = hist($gap);
+            @gap_max  = max($gap);
+            @gap_sum += $gap;
+            @gap_cnt += 1;
+        }
+        @total_packets = count();
+        @reordering_thresh = hist($tp->reordering);
+    } 
+}
+
+interval:s:1
+{
+    printf("\n===== SUMMARY =====\n");
+
+    print(@total_packets);
+    print(@gap_cnt);
+
+    if (@gap_cnt > 0) {
+        print(@gap_max);
+        print(@gap_sum / @gap_cnt);
+        print(@gap_hist);
+        print(@reordering_thresh);
+    }
+
+    printf("=====================\n");
+
+    // Reset for next window
+    clear(@gap_hist);
+    clear(@gap_max);
+    clear(@gap_sum);
+    clear(@gap_cnt);
+    clear(@reordering_thresh);
+    clear(@total_packets);
+}
