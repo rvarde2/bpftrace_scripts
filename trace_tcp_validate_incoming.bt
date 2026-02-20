@@ -40,8 +40,7 @@ kprobe:tcp_validate_incoming
         if ($seq > $rcv_nxt) {
             $gap = ($seq - $rcv_nxt)/8800;
 
-            printf("REORDER: gap=%u seq=%u rcv_nxt=%u\n",
-                   $gap, $seq, $rcv_nxt);
+            //printf("REORDER: gap=%u seq=%u rcv_nxt=%u\n",$gap, $seq, $rcv_nxt);
 
             @gap_hist = hist($gap);
             @gap_max  = max($gap);
