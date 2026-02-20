@@ -3,6 +3,8 @@
 #include <net/tcp.h>
 #include <net/sock.h>
 
+// run: ./trace_tcp_data_queue.bt 5201
+
 kprobe:tcp_data_queue
 {
     $sk  = (struct sock *)arg0;
@@ -13,12 +15,12 @@ kprobe:tcp_data_queue
         return;
     }
 
-    $lport = $sk->__sk_common.skc_num;
-    $dport_be = $sk->__sk_common.skc_dport;
-    $dport = (($dport_be & 0xFF00) >> 8) | (($dport_be & 0x00FF) << 8);
+    $lport = $sk->__sk_common.skc_num; //Listening Port
+    $sport_be = $sk->__sk_common.skc_dport; //Sender Port
+    $sport = (($sport_be & 0xFF00) >> 8) | (($sport_be & 0x00FF) << 8);
 
-    //if ($lport == $1 && $dport == $2)
-    if ($dport == $2){
+    //if ($sport == $1 && $lport == $2)
+    if ($lport == $1){
         $tp = (struct tcp_sock *)$sk;
         $rcv_nxt = $tp->rcv_nxt;
         $tcb = (struct tcp_skb_cb *)$skb->cb;
@@ -35,13 +37,13 @@ kprobe:tcp_data_queue
 
             /*
             $ecn = $iph->tos & 0x3;
-            if ($ecn == 3) {
+            if ($ecn == 0x3) {
                 @reorder_ce = count();
             }
             */
             
             $compress = $iph->tos & 0x4;
-            if ($compress == 1) {
+            if ($compress == 0x4) {
                 @gap_compress_hist = hist($gap);
             }
             else{
@@ -63,7 +65,7 @@ interval:s:1
 
     if (@gap_cnt > 0) {
         print(@gap_max);
-        print(@gap_sum / @gap_cnt);
+        printf("average_gap:%d",@gap_sum / @gap_cnt);
         print(@gap_compress_hist);
         print(@gap_encrypt_hist);
         print(@reordering_thresh);

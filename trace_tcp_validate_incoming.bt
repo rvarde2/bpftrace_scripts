@@ -3,6 +3,8 @@
 #include <net/tcp.h>
 #include <net/sock.h>
 
+// run: ./trace_tcp_validate_incoming.bt 5201
+
 kprobe:tcp_validate_incoming
 {
     $sk = (struct sock *)arg0;
@@ -13,12 +15,12 @@ kprobe:tcp_validate_incoming
         return;
     }
 
-    $lport = $sk->__sk_common.skc_num;
-    $dport_be = $sk->__sk_common.skc_dport;
-    $dport = (($dport_be & 0xFF00) >> 8) | (($dport_be & 0x00FF) << 8);
+    $lport = $sk->__sk_common.skc_num; //Listening Port
+    $sport_be = $sk->__sk_common.skc_dport; //Sender Port
+    $sport = (($sport_be & 0xFF00) >> 8) | (($sport_be & 0x00FF) << 8);
 
-    //if ($lport == $1 && $dport == $2)
-    if ($dport == $2){
+    //if ($sport == $1 && $lport == $2)
+    if ($lport == $1){
         $tp = (struct tcp_sock *)$sk;
         $rcv_nxt = $tp->rcv_nxt;
         // printf("rcv_nxt=%u\n", $tp->rcv_nxt);
