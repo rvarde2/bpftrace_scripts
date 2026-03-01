@@ -1,6 +1,6 @@
 #!/bin/bash
 DEV="s1-eth2"
-DELAY=500ms
+DELAY=50ms
 
 if [ "$#" -ne 1 ] ; then
     printf "$0: exactly 1 arguments expected\n"
