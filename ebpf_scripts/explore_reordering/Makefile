@@ -1,8 +1,4 @@
 CLANG := clang
-
-# We remove -g (debug/BTF info) to see if a stripped object loads easier
-# We keep -O2 as it is mandatory for the BPF verifier
-CLANG   := clang
 BPFTOOL := bpftool
 BPF_CFLAGS := -target bpf -O2 -fno-asynchronous-unwind-tables
 
