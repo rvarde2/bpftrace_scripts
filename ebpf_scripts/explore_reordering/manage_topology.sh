@@ -3,16 +3,20 @@ DEV="s1-eth2"
 DELAY_BASE=20ms
 DELAY_REORDER=10ms
 
-if [ "$#" -ne 1 ] ; then
-    printf "$0: exactly 1 arguments expected\n"
+print_usage() {
     printf "Usage: ./manage_topology.sh <command>\n"
     printf "Commands:\n"
     printf "\t--help: help\n"
     printf "\t--create: create setup\n"
+    printf "\t--dsack: <enable/disable/status/track>: enable, disable, track or get status of dsack\n"
     printf "\t--delete: delete setup\n"
-    printf "\t--loss <percent loss>: packet loss\n"
-    printf "\t--reorder_on: enable ebpf based reordering\n"
-    printf "\t--reorder_off: disable ebpf based reordering\n"
+    printf "\t--loss <percent loss|status>: packet loss or get current loss status\n"
+    printf "\t--reorder <enable/disable/status>: enable, disable, or get status of ebpf based reordering\n"
+}
+
+if [ "$#" -gt 2 ] ; then
+    printf "$0: maximum 2 arguments expected\n"
+    print_usage
     exit 1
 fi
 
@@ -46,34 +50,67 @@ case "$1" in
 		sudo tc qdisc add dev $DEV parent 1:2 handle 20: netem delay $DELAY_REORDER
 		sudo tc qdisc add dev $DEV parent 1:3 handle 30: pfifo
 		;;
-	--reorder_on)
-		echo "[+] Compiling and Attaching eBPF..."
-		make
-		sudo tc qdisc add dev $DEV clsact 2>/dev/null
-		sudo tc filter add dev $DEV egress bpf da obj ebpf_reorder.o sec classifier
+	--dsack)
+		if [ "$2" = "enable" ]; then
+			echo "[+] Enabling dsack in both namespaces..."
+			sudo ip netns exec h1 sysctl -w net.ipv4.tcp_dsack=1
+			sudo ip netns exec h2 sysctl -w net.ipv4.tcp_dsack=1
+		elif [ "$2" = "disable" ]; then
+			echo "[+] Disabling dsack in both namespaces..."
+			sudo ip netns exec h1 sysctl -w net.ipv4.tcp_dsack=0
+			sudo ip netns exec h2 sysctl -w net.ipv4.tcp_dsack=0
+		elif [ "$2" = "status" ]; then
+			echo "[*] dsack status:"
+			sudo ip netns exec h1 sysctl net.ipv4.tcp_dsack
+			sudo ip netns exec h2 sysctl net.ipv4.tcp_dsack
+		elif [ "$2" = "track" ]; then
+			echo "[*] Tracking dsack in sender namespaces with tshark..."
+			sudo ip netns exec h1 tshark -i h1-eth0 -Y "tcp.options.sack.dsack" 
+		else
+			echo "Usage: --dsack <enable|disable|status|track>"
+			exit 1
+		fi
 		;;
-	--reorder_off)
-		echo "[-] Removing eBPF Reorder Logic..."
-		# This command deletes the specific BPF filter from the egress hook
-		sudo tc filter del dev $DEV egress 2>/dev/null
-		echo "[-] Reordering Stopped. Traffic will now use default Band 1."
+	--reorder)
+		if [ "$2" = "enable" ]; then
+			echo "[+] Compiling and Attaching eBPF..."
+			make
+			sudo tc qdisc add dev $DEV clsact 2>/dev/null
+			sudo tc filter add dev $DEV egress bpf da obj ebpf_reorder.o sec classifier
+		elif [ "$2" = "disable" ]; then
+			echo "[-] Removing eBPF Reorder Logic..."
+			# This command deletes the specific BPF filter from the egress hook
+			sudo tc filter del dev $DEV egress 2>/dev/null
+			echo "[-] Reordering Stopped. Traffic will now use default Band 1."
+		elif [ "$2" = "status" ]; then
+			if sudo tc filter show dev $DEV egress | grep -q "ebpf_reorder.o"; then
+				echo "[*] eBPF Reordering is currently: ENABLED"
+			else
+				echo "[*] eBPF Reordering is currently: DISABLED"
+			fi
+		else
+			echo "Usage: --reorder <enable|disable|status>"
+			exit 1
+		fi
 		;;
 	--loss)
-		echo "[+] Setting Band 1 Loss to $2%"
-		sudo tc qdisc change dev $DEV parent 1:1 handle 10: netem loss $2%
+		if [ "$2" = "status" ]; then
+			CURRENT_LOSS=$(sudo tc qdisc show dev $DEV | grep "10: parent 1:1" | grep -o 'loss [^ ]*' | cut -d' ' -f2)
+			if [ -z "$CURRENT_LOSS" ]; then
+				echo "[*] Current Band 1 Loss: 0%"
+			else
+				echo "[*] Current Band 1 Loss: $CURRENT_LOSS"
+			fi
+		else
+			echo "[+] Setting Band 1 Loss to $2%"
+			sudo tc qdisc change dev $DEV parent 1:1 handle 10: netem loss $2%
+		fi
 		;;
 	--delete)
 		sudo ip netns del h1 && sudo ip netns del h2
 		sudo ip link delete name s1 type bridge
 		;;
 	*)
-		printf "Usage: ./manage_topology.sh <command>\n"
-		printf "Commands:\n"
-		printf "\t--help: help\n"
-		printf "\t--create: create setup\n"
-		printf "\t--delete: delete setup\n"
-		printf "\t--loss <percent loss>: packet loss\n"
-		printf "\t--reorder_on: enable ebpf based reordering\n"
-		printf "\t--reorder_off: disable ebpf based reordering\n"
+		print_usage
 		;;
 esac

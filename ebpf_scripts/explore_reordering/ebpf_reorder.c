@@ -4,8 +4,8 @@
 
 #define TC_ACT_OK 0
 #define ETH_P_IP 0x0800
-#define REORDER_INTERVAL 10
-
+#define REORDER_INTERVAL 100
+#define BURST_SIZE 5
 
 struct bpf_elf_map {
     __u32 type;
@@ -68,8 +68,8 @@ int reorder_prog(struct __sk_buff *skb) {
         
         // 2. Apply all ToS modifications to a local variable first 
         __u8 new_tos = ip->tos | 0x08;
-
-        if (pkt_idx % REORDER_INTERVAL == 0) {
+        __u8 reorder_burst = (pkt_idx % REORDER_INTERVAL);
+        if (reorder_burst < BURST_SIZE) {
             new_tos |= 0x04; // Set compression bit
             //bpf_printk("Seq: %u -> (Priority 1)\n", seq_val);
             skb->priority = 1;
