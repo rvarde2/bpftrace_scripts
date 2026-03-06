@@ -1,0 +1,60 @@
+#!/usr/bin/env bpftrace
+
+#include <net/tcp.h>
+#include <net/sock.h>
+// run: ./trace_tcp_ack_sack.bt 5201
+
+kprobe:__tcp_transmit_skb
+{
+    $sk  = (struct sock *)arg0;
+    $skb = (struct sk_buff *)arg1;
+    $lport = $sk->__sk_common.skc_num;
+    $sport_be = $sk->__sk_common.skc_dport;//Peer Port
+    $sport_port = (($sport_be & 0xFF00) >> 8) | (($sport_be & 0x00FF) << 8);
+    $payload_size = $skb->len;
+    
+    //if ($sport == $1 && $lport == $2)
+    if ($lport == $1 && $payload_size==0){
+        @ack_cnt = count();
+        $tp = (struct tcp_sock *)$sk;
+        $tcb = (struct tcp_skb_cb *)$skb->cb;
+        $num_sacks = $tp->rx_opt.num_sacks;
+        if($num_sacks>0){
+            @sack_cnt = count();
+            @num_sacks_hist = lhist($num_sacks,0,10,1);
+            $gap_max = (uint32)0;
+            $itr = (uint32)0;
+            $gap_start = $tp->rcv_nxt;
+            unroll(4) {
+                if ($itr < $num_sacks) {
+                    $island_start = $tp->selective_acks[$itr].start_seq;
+                    $island_end   = $tp->selective_acks[$itr].end_seq;
+                    $gap = $island_start-$gap_start;
+                    if($gap>$gap_max){
+                        $gap_max = $gap;
+                    }
+                    $gap_start = $island_end;
+                }
+                $itr++;
+            }
+            //@gap_max_hist = hist($gap_max/$tp->mss_cache);
+            @gap_max_hist = hist($gap_max);
+        }
+    }
+}
+
+interval:s:1
+{
+    printf("\n===== SUMMARY =====\n");
+    print(@sack_cnt);
+    print(@num_sacks_hist);
+    print(@gap_max_hist);
+    print(@ack_cnt);
+    printf("=====================\n");
+    clear(@ack_cnt);
+    clear(@num_sacks_hist);
+    clear(@gap_max_hist);
+    clear(@sack_cnt);
+}
+
+
