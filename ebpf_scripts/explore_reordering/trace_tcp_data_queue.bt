@@ -1,0 +1,34 @@
+#!/usr/bin/env bpftrace
+
+#include <net/tcp.h>
+#include <net/sock.h>
+// run: ./trace_tcp_data_queue.bt 5201
+
+kprobe:tcp_data_queue
+{
+    $sk  = (struct sock *)arg0;
+    $skb = (struct sk_buff *)arg1;
+    //Ignore packets without payload: Ignore Acks: Makes it receiver side script
+    if ($skb->len == 0) {
+        return;
+    }
+
+    $lport = $sk->__sk_common.skc_num; //Listening Port
+    $sport_be = $sk->__sk_common.skc_dport; //Sender Port
+    $sport = (($sport_be & 0xFF00) >> 8) | (($sport_be & 0x00FF) << 8);
+
+    //if ($sport == $1 && $lport == $2)
+    if ($lport == $1){
+        $tp = (struct tcp_sock *)$sk;
+        $rcv_nxt = $tp->rcv_nxt;
+        $tcb = (struct tcp_skb_cb *)$skb->cb;
+        $seq = $tcb->seq;
+
+        if ($skb->mark & 0x80000000) {
+            printf("SEQ: %u | PIPELINE: COMPRESSED (Mark: 0x%x)\n", $seq, $skb->mark);
+        } else {
+            //printf("SEQ: %u | PIPELINE: DIRECT     (Mark: 0x%x)\n", $seq, $skb->mark);
+        }
+    }
+}
+

@@ -42,6 +42,7 @@ kprobe:tcp_data_queue
             
             $compress = $iph->tos & 0x4;
             if ($compress == 0x4) {
+                printf("SEQ: %u | PIPELINE: COMPRESSED (Mark: 0x%x)\n", $seq, $skb->mark);
                 @gap_compress_hist = lhist($gap,0,1000,100);
             }
             else{

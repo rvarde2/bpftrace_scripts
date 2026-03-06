@@ -12,6 +12,7 @@ print_usage() {
     printf "\t--delete: delete setup\n"
     printf "\t--loss <percent loss|status>: packet loss or get current loss status\n"
     printf "\t--reorder <enable/disable/status>: enable, disable, or get status of ebpf based reordering\n"
+    printf "\t--mark_echo <enable/disable/status>: enable, disable, or get status of ebpf based mark_echo\n"
 }
 
 if [ "$#" -gt 2 ] ; then
@@ -76,11 +77,12 @@ case "$1" in
 			echo "[+] Compiling and Attaching eBPF..."
 			make
 			sudo tc qdisc add dev $DEV clsact 2>/dev/null
-			sudo tc filter add dev $DEV egress bpf da obj ebpf_reorder.o sec classifier
+			# pref 10 sets rule execution preference, does NOT affect skb->priority
+			sudo tc filter add dev $DEV egress pref 10 bpf da obj ebpf_reorder.o sec classifier
 		elif [ "$2" = "disable" ]; then
 			echo "[-] Removing eBPF Reorder Logic..."
-			# This command deletes the specific BPF filter from the egress hook
-			sudo tc filter del dev $DEV egress 2>/dev/null
+			# This specifically deletes only the rule with preference 10
+			sudo tc filter del dev $DEV egress pref 10 2>/dev/null
 			echo "[-] Reordering Stopped. Traffic will now use default Band 1."
 		elif [ "$2" = "status" ]; then
 			if sudo tc filter show dev $DEV egress | grep -q "ebpf_reorder.o"; then
@@ -90,6 +92,28 @@ case "$1" in
 			fi
 		else
 			echo "Usage: --reorder <enable|disable|status>"
+			exit 1
+		fi
+		;;
+	--mark_echo)
+		if [ "$2" = "enable" ]; then
+			echo "[+] Compiling and Attaching eBPF mark_echo..."
+			make
+			sudo ip netns exec h2 tc qdisc add dev h2-eth0 clsact 2>/dev/null
+			# pref 20 sets rule execution preference
+			sudo ip netns exec h2 tc filter add dev h2-eth0 ingress pref 20 bpf da obj ebpf_mark_echo.o sec classifier
+		elif [ "$2" = "disable" ]; then
+			echo "[-] Removing eBPF mark_echo Logic..."
+			sudo ip netns exec h2 tc filter del dev h2-eth0 ingress pref 20 2>/dev/null
+			echo "[-] mark_echo Stopped."
+		elif [ "$2" = "status" ]; then
+			if sudo ip netns exec h2 tc filter show dev h2-eth0 ingress | grep -q "ebpf_mark_echo.o"; then
+				echo "[*] eBPF mark_echo is currently: ENABLED"
+			else
+				echo "[*] eBPF mark_echo is currently: DISABLED"
+			fi
+		else
+			echo "Usage: --mark_echo <enable|disable|status>"
 			exit 1
 		fi
 		;;
